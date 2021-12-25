@@ -24,6 +24,7 @@ import {
   ElementTypeRoot,
   ElementTypeSuspense,
   ElementTypeSuspenseList,
+  StrictMode,
 } from 'react-devtools-shared/src/types';
 import {
   deletePathInObject,
@@ -52,6 +53,7 @@ import {
   TREE_OPERATION_REMOVE,
   TREE_OPERATION_REMOVE_ROOT,
   TREE_OPERATION_REORDER_CHILDREN,
+  TREE_OPERATION_SET_SUBTREE_MODE,
   TREE_OPERATION_UPDATE_ERRORS_OR_WARNINGS,
   TREE_OPERATION_UPDATE_TREE_BASE_DURATION,
 } from '../constants';
@@ -82,10 +84,14 @@ import {
   MEMO_SYMBOL_STRING,
 } from './ReactSymbols';
 import {format} from './utils';
-import {enableProfilerChangedHookIndices} from 'react-devtools-feature-flags';
+import {
+  enableProfilerChangedHookIndices,
+  enableStyleXFeatures,
+} from 'react-devtools-feature-flags';
 import is from 'shared/objectIs';
 import isArray from 'shared/isArray';
 import hasOwnProperty from 'shared/hasOwnProperty';
+import {getStyleXData} from './StyleX/utils';
 
 import type {Fiber} from 'react-reconciler/src/ReactInternalTypes';
 import type {
@@ -108,6 +114,7 @@ import type {
 import type {
   ComponentFilter,
   ElementType,
+  Plugins,
 } from 'react-devtools-shared/src/types';
 
 type getDisplayNameForFiberType = (fiber: Fiber) => string | null;
@@ -150,6 +157,7 @@ export function getInternalReactConstants(
   ReactPriorityLevels: ReactPriorityLevelsType,
   ReactTypeOfSideEffect: ReactTypeOfSideEffectType,
   ReactTypeOfWork: WorkTagMap,
+  StrictModeBits: number,
 |} {
   const ReactTypeOfSideEffect: ReactTypeOfSideEffectType = {
     DidCapture: 0b10000000,
@@ -185,6 +193,18 @@ export function getInternalReactConstants(
       IdlePriority: 5,
       NoPriority: 0,
     };
+  }
+
+  let StrictModeBits = 0;
+  if (gte(version, '18.0.0-alpha')) {
+    // 18+
+    StrictModeBits = 0b011000;
+  } else if (gte(version, '16.9.0')) {
+    // 16.9 - 17
+    StrictModeBits = 0b1;
+  } else if (gte(version, '16.3.0')) {
+    // 16.3 - 16.8
+    StrictModeBits = 0b10;
   }
 
   let ReactTypeOfWork: WorkTagMap = ((null: any): WorkTagMap);
@@ -425,6 +445,10 @@ export function getInternalReactConstants(
           getDisplayName(resolvedType, 'Anonymous')
         );
       case HostRoot:
+        const fiberRoot = fiber.stateNode;
+        if (fiberRoot != null && fiberRoot._debugRootType !== null) {
+          return fiberRoot._debugRootType;
+        }
         return null;
       case HostComponent:
         return type;
@@ -504,6 +528,7 @@ export function getInternalReactConstants(
     ReactPriorityLevels,
     ReactTypeOfWork,
     ReactTypeOfSideEffect,
+    StrictModeBits,
   };
 }
 
@@ -525,6 +550,7 @@ export function attach(
     ReactPriorityLevels,
     ReactTypeOfWork,
     ReactTypeOfSideEffect,
+    StrictModeBits,
   } = getInternalReactConstants(version);
   const {
     DidCapture,
@@ -1249,8 +1275,10 @@ export function attach(
 
   function updateContextsForFiber(fiber: Fiber) {
     switch (getElementTypeForFiber(fiber)) {
-      case ElementTypeFunction:
       case ElementTypeClass:
+      case ElementTypeForwardRef:
+      case ElementTypeFunction:
+      case ElementTypeMemo:
         if (idToContextsMap !== null) {
           const id = getFiberIDThrows(fiber);
           const contexts = getContextsForFiber(fiber);
@@ -1288,7 +1316,9 @@ export function attach(
           }
         }
         return [legacyContext, modernContext];
+      case ElementTypeForwardRef:
       case ElementTypeFunction:
+      case ElementTypeMemo:
         const dependencies = fiber.dependencies;
         if (dependencies && dependencies.firstContext) {
           modernContext = dependencies.firstContext;
@@ -1337,12 +1367,18 @@ export function attach(
             }
           }
           break;
+        case ElementTypeForwardRef:
         case ElementTypeFunction:
+        case ElementTypeMemo:
           if (nextModernContext !== NO_CONTEXT) {
             let prevContext = prevModernContext;
             let nextContext = nextModernContext;
 
             while (prevContext && nextContext) {
+              // Note this only works for versions of React that support this key (e.v. 18+)
+              // For older versions, there's no good way to read the current context value after render has completed.
+              // This is because React maintains a stack of context values during render,
+              // but by the time DevTools is called, render has finished and the stack is empty.
               if (!is(prevContext.memoizedValue, nextContext.memoizedValue)) {
                 return true;
               }
@@ -1542,6 +1578,19 @@ export function attach(
   }
 
   function flushOrQueueOperations(operations: OperationsArray): void {
+    if (operations.length === 3) {
+      // This operations array is a no op: [renderer ID, root ID, string table size (0)]
+      // We can usually skip sending updates like this across the bridge, unless we're Profiling.
+      // In that case, even though the tree didn't change– some Fibers may have still rendered.
+      if (
+        !isProfiling ||
+        currentCommitProfilingMetadata == null ||
+        currentCommitProfilingMetadata.durations.length === 0
+      ) {
+        return;
+      }
+    }
+
     if (pendingOperationsQueue !== null) {
       pendingOperationsQueue.push(operations);
     } else {
@@ -1844,7 +1893,9 @@ export function attach(
       pushOperation(TREE_OPERATION_ADD);
       pushOperation(id);
       pushOperation(ElementTypeRoot);
+      pushOperation((fiber.mode & StrictModeBits) !== 0 ? 1 : 0);
       pushOperation(isProfilingSupported ? 1 : 0);
+      pushOperation(StrictModeBits !== 0 ? 1 : 0);
       pushOperation(hasOwnerMetadata ? 1 : 0);
 
       if (isProfiling) {
@@ -1881,6 +1932,16 @@ export function attach(
       pushOperation(ownerID);
       pushOperation(displayNameStringID);
       pushOperation(keyStringID);
+
+      // If this subtree has a new mode, let the frontend know.
+      if (
+        (fiber.mode & StrictModeBits) !== 0 &&
+        (((parentFiber: any): Fiber).mode & StrictModeBits) === 0
+      ) {
+        pushOperation(TREE_OPERATION_SET_SUBTREE_MODE);
+        pushOperation(id);
+        pushOperation(StrictMode);
+      }
     }
 
     if (isProfilingSupported) {
@@ -2604,18 +2665,26 @@ export function attach(
     }
 
     if (isProfiling && isProfilingSupported) {
-      const commitProfilingMetadata = ((rootToCommitProfilingMetadataMap: any): CommitProfilingMetadataMap).get(
-        currentRootID,
-      );
-      if (commitProfilingMetadata != null) {
-        commitProfilingMetadata.push(
-          ((currentCommitProfilingMetadata: any): CommitProfilingData),
-        );
-      } else {
-        ((rootToCommitProfilingMetadataMap: any): CommitProfilingMetadataMap).set(
+      // Make sure at least one Fiber performed work during this commit.
+      // If not, don't send it to the frontend; showing an empty commit in the Profiler is confusing.
+      if (
+        currentCommitProfilingMetadata != null &&
+        currentCommitProfilingMetadata.durations.length > 0
+      ) {
+        const commitProfilingMetadata = ((rootToCommitProfilingMetadataMap: any): CommitProfilingMetadataMap).get(
           currentRootID,
-          [((currentCommitProfilingMetadata: any): CommitProfilingData)],
         );
+
+        if (commitProfilingMetadata != null) {
+          commitProfilingMetadata.push(
+            ((currentCommitProfilingMetadata: any): CommitProfilingData),
+          );
+        } else {
+          ((rootToCommitProfilingMetadataMap: any): CommitProfilingMetadataMap).set(
+            currentRootID,
+            [((currentCommitProfilingMetadata: any): CommitProfilingData)],
+          );
+        }
       }
     }
 
@@ -3199,6 +3268,16 @@ export function attach(
       targetErrorBoundaryID = getNearestErrorBoundaryID(fiber);
     }
 
+    const plugins: Plugins = {
+      stylex: null,
+    };
+
+    if (enableStyleXFeatures) {
+      if (memoizedProps.hasOwnProperty('xstyle')) {
+        plugins.stylex = getStyleXData(memoizedProps.xstyle);
+      }
+    }
+
     return {
       id,
 
@@ -3258,6 +3337,8 @@ export function attach(
       rootType,
       rendererPackageName: renderer.rendererPackageName,
       rendererVersion: renderer.version,
+
+      plugins,
     };
   }
 

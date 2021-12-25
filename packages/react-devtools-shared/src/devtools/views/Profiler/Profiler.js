@@ -16,7 +16,7 @@ import ClearProfilingDataButton from './ClearProfilingDataButton';
 import CommitFlamegraph from './CommitFlamegraph';
 import CommitRanked from './CommitRanked';
 import RootSelector from './RootSelector';
-import {SchedulingProfiler} from 'react-devtools-scheduling-profiler/src/SchedulingProfiler';
+import {Timeline} from 'react-devtools-timeline/src/Timeline';
 import RecordToggle from './RecordToggle';
 import ReloadAndProfileButton from './ReloadAndProfileButton';
 import ProfilingImportExportButtons from './ProfilingImportExportButtons';
@@ -28,6 +28,7 @@ import SettingsModalContextToggle from 'react-devtools-shared/src/devtools/views
 import {SettingsModalContextController} from 'react-devtools-shared/src/devtools/views/Settings/SettingsModalContext';
 import portaledContent from '../portaledContent';
 import {StoreContext} from '../context';
+import {TimelineContext} from 'react-devtools-timeline/src/TimelineContext';
 
 import styles from './Profiler.css';
 
@@ -43,23 +44,23 @@ function Profiler(_: {||}) {
     supportsProfiling,
   } = useContext(ProfilerContext);
 
-  const {supportsSchedulingProfiler} = useContext(StoreContext);
+  const {searchInputContainerRef} = useContext(TimelineContext);
 
-  let isLegacyProfilerSelected = false;
+  const {supportsTimeline} = useContext(StoreContext);
+
+  const isLegacyProfilerSelected = selectedTabID !== 'timeline';
 
   let view = null;
-  if (didRecordCommits || selectedTabID === 'scheduling-profiler') {
+  if (didRecordCommits || selectedTabID === 'timeline') {
     switch (selectedTabID) {
       case 'flame-chart':
-        isLegacyProfilerSelected = true;
         view = <CommitFlamegraph />;
         break;
       case 'ranked-chart':
-        isLegacyProfilerSelected = true;
         view = <CommitRanked />;
         break;
-      case 'scheduling-profiler':
-        view = <SchedulingProfiler />;
+      case 'timeline':
+        view = <Timeline />;
         break;
       default:
         break;
@@ -104,14 +105,10 @@ function Profiler(_: {||}) {
         <div className={styles.LeftColumn}>
           <div className={styles.Toolbar}>
             <RecordToggle
-              disabled={
-                !supportsProfiling || selectedTabID === 'scheduling-profiler'
-              }
+              disabled={!supportsProfiling || selectedTabID === 'timeline'}
             />
             <ReloadAndProfileButton
-              disabled={
-                selectedTabID === 'scheduling-profiler' || !supportsProfiling
-              }
+              disabled={selectedTabID === 'timeline' || !supportsProfiling}
             />
             <ClearProfilingDataButton />
             <ProfilingImportExportButtons />
@@ -120,13 +117,17 @@ function Profiler(_: {||}) {
               currentTab={selectedTabID}
               id="Profiler"
               selectTab={selectTab}
-              tabs={
-                supportsSchedulingProfiler ? tabsWithSchedulingProfiler : tabs
-              }
+              tabs={supportsTimeline ? tabsWithTimeline : tabs}
               type="profiler"
             />
             <RootSelector />
             <div className={styles.Spacer} />
+            {!isLegacyProfilerSelected && (
+              <div
+                ref={searchInputContainerRef}
+                className={styles.TimlineSearchInputContainer}
+              />
+            )}
             <SettingsModalContextToggle />
             {isLegacyProfilerSelected && didRecordCommits && (
               <Fragment>
@@ -164,14 +165,14 @@ const tabs = [
   },
 ];
 
-const tabsWithSchedulingProfiler = [
+const tabsWithTimeline = [
   ...tabs,
   null, // Divider/separator
   {
-    id: 'scheduling-profiler',
-    icon: 'scheduling-profiler',
-    label: 'Scheduling',
-    title: 'Scheduling Profiler',
+    id: 'timeline',
+    icon: 'timeline',
+    label: 'Timeline',
+    title: 'Timeline',
   },
 ];
 

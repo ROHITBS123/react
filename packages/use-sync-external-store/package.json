@@ -12,12 +12,14 @@
     "README.md",
     "build-info.json",
     "index.js",
-    "extra.js",
     "index.native.js",
+    "with-selector.js",
+    "with-selector.native.js",
+    "shim/",
     "cjs/"
   ],
   "license": "MIT",
   "peerDependencies": {
-    "react": "^16.8.0 || ^17.0.0"
+    "react": "^16.8.0 || ^17.0.0 || ^18.0.0-rc"
   }
 }

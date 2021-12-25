@@ -43,7 +43,7 @@ export type HookType =
   | 'useTransition'
   | 'useMutableSource'
   | 'useSyncExternalStore'
-  | 'useOpaqueIdentifier'
+  | 'useId'
   | 'useCacheRefresh';
 
 export type ContextDependency<T> = {
@@ -239,6 +239,13 @@ type BaseFiberRootProperties = {|
 
   pooledCache: Cache | null,
   pooledCacheLanes: Lanes,
+
+  // TODO: In Fizz, id generation is specific to each server config. Maybe we
+  // should do this in Fiber, too? Deferring this decision for now because
+  // there's no other place to store the prefix except for an internal field on
+  // the public createRoot object, which the fiber tree does not currently have
+  // a reference to.
+  identifierPrefix: string,
 |};
 
 // The following attributes are only used by DevTools and are only present in DEV builds.
@@ -273,6 +280,7 @@ type BasicStateAction<S> = (S => S) | S;
 type Dispatch<A> = A => void;
 
 export type Dispatcher = {|
+  getCacheSignal?: () => AbortSignal,
   getCacheForType?: <T>(resourceType: () => T) => T,
   readContext<T>(context: ReactContext<T>): T,
   useState<S>(initialState: (() => S) | S): [S, Dispatch<BasicStateAction<S>>],
@@ -315,7 +323,7 @@ export type Dispatcher = {|
     getSnapshot: () => T,
     getServerSnapshot?: () => T,
   ): T,
-  useOpaqueIdentifier(): any,
+  useId(): string,
   useCacheRefresh?: () => <T>(?() => T, ?T) => void,
 
   unstable_isNewReconciler?: boolean,

@@ -11,6 +11,8 @@ import type {Container} from './ReactDOMHostConfig';
 import type {MutableSource, ReactNodeList} from 'shared/ReactTypes';
 import type {FiberRoot} from 'react-reconciler/src/ReactInternalTypes';
 
+import {queueExplicitHydrationTarget} from '../events/ReactDOMEventReplaying';
+
 export type RootType = {
   render(children: ReactNodeList): void,
   unmount(): void,
@@ -19,17 +21,9 @@ export type RootType = {
 };
 
 export type CreateRootOptions = {
-  // TODO: Remove these options.
-  hydrate?: boolean,
-  hydrationOptions?: {
-    onHydrated?: (suspenseNode: Comment) => void,
-    onDeleted?: (suspenseNode: Comment) => void,
-    mutableSources?: Array<MutableSource<any>>,
-    ...
-  },
-  // END OF TODO
   unstable_strictMode?: boolean,
   unstable_concurrentUpdatesByDefault?: boolean,
+  identifierPrefix?: string,
   ...
 };
 
@@ -41,6 +35,7 @@ export type HydrateRootOptions = {
   // Options for all roots
   unstable_strictMode?: boolean,
   unstable_concurrentUpdatesByDefault?: boolean,
+  identifierPrefix?: string,
   ...
 };
 
@@ -72,7 +67,9 @@ function ReactDOMRoot(internalRoot: FiberRoot) {
   this._internalRoot = internalRoot;
 }
 
-ReactDOMRoot.prototype.render = function(children: ReactNodeList): void {
+ReactDOMHydrationRoot.prototype.render = ReactDOMRoot.prototype.render = function(
+  children: ReactNodeList,
+): void {
   const root = this._internalRoot;
   if (root === null) {
     throw new Error('Cannot update an unmounted root.');
@@ -104,7 +101,7 @@ ReactDOMRoot.prototype.render = function(children: ReactNodeList): void {
   updateContainer(children, root, null, null);
 };
 
-ReactDOMRoot.prototype.unmount = function(): void {
+ReactDOMHydrationRoot.prototype.unmount = ReactDOMRoot.prototype.unmount = function(): void {
   if (__DEV__) {
     if (typeof arguments[0] === 'function') {
       console.error(
@@ -143,33 +140,39 @@ export function createRoot(
 
   warnIfReactDOMContainerInDEV(container);
 
-  // TODO: Delete these options
-  const hydrate = options != null && options.hydrate === true;
-  const hydrationCallbacks =
-    (options != null && options.hydrationOptions) || null;
-  const mutableSources =
-    (options != null &&
-      options.hydrationOptions != null &&
-      options.hydrationOptions.mutableSources) ||
-    null;
-  // END TODO
-
-  const isStrictMode = options != null && options.unstable_strictMode === true;
-  let concurrentUpdatesByDefaultOverride = null;
-  if (allowConcurrentByDefault) {
-    concurrentUpdatesByDefaultOverride =
-      options != null && options.unstable_concurrentUpdatesByDefault != null
-        ? options.unstable_concurrentUpdatesByDefault
-        : null;
+  let isStrictMode = false;
+  let concurrentUpdatesByDefaultOverride = false;
+  let identifierPrefix = '';
+  if (options !== null && options !== undefined) {
+    if (__DEV__) {
+      if ((options: any).hydrate) {
+        console.warn(
+          'hydrate through createRoot is deprecated. Use ReactDOM.hydrateRoot(container, <App />) instead.',
+        );
+      }
+    }
+    if (options.unstable_strictMode === true) {
+      isStrictMode = true;
+    }
+    if (
+      allowConcurrentByDefault &&
+      options.unstable_concurrentUpdatesByDefault === true
+    ) {
+      concurrentUpdatesByDefaultOverride = true;
+    }
+    if (options.identifierPrefix !== undefined) {
+      identifierPrefix = options.identifierPrefix;
+    }
   }
 
   const root = createContainer(
     container,
     ConcurrentRoot,
-    hydrate,
-    hydrationCallbacks,
+    false,
+    null,
     isStrictMode,
     concurrentUpdatesByDefaultOverride,
+    identifierPrefix,
   );
   markContainerAsRoot(root.current, container);
 
@@ -177,17 +180,18 @@ export function createRoot(
     container.nodeType === COMMENT_NODE ? container.parentNode : container;
   listenToAllSupportedEvents(rootContainerElement);
 
-  // TODO: Delete this path
-  if (mutableSources) {
-    for (let i = 0; i < mutableSources.length; i++) {
-      const mutableSource = mutableSources[i];
-      registerMutableSourceForHydration(root, mutableSource);
-    }
-  }
-  // END TODO
-
   return new ReactDOMRoot(root);
 }
+
+function ReactDOMHydrationRoot(internalRoot: FiberRoot) {
+  this._internalRoot = internalRoot;
+}
+function scheduleHydration(target: Node) {
+  if (target) {
+    queueExplicitHydrationTarget(target);
+  }
+}
+ReactDOMHydrationRoot.prototype.unstable_scheduleHydration = scheduleHydration;
 
 export function hydrateRoot(
   container: Container,
@@ -203,15 +207,25 @@ export function hydrateRoot(
   // For now we reuse the whole bag of options since they contain
   // the hydration callbacks.
   const hydrationCallbacks = options != null ? options : null;
+  // TODO: Delete this option
   const mutableSources = (options != null && options.hydratedSources) || null;
-  const isStrictMode = options != null && options.unstable_strictMode === true;
 
-  let concurrentUpdatesByDefaultOverride = null;
-  if (allowConcurrentByDefault) {
-    concurrentUpdatesByDefaultOverride =
-      options != null && options.unstable_concurrentUpdatesByDefault != null
-        ? options.unstable_concurrentUpdatesByDefault
-        : null;
+  let isStrictMode = false;
+  let concurrentUpdatesByDefaultOverride = false;
+  let identifierPrefix = '';
+  if (options !== null && options !== undefined) {
+    if (options.unstable_strictMode === true) {
+      isStrictMode = true;
+    }
+    if (
+      allowConcurrentByDefault &&
+      options.unstable_concurrentUpdatesByDefault === true
+    ) {
+      concurrentUpdatesByDefaultOverride = true;
+    }
+    if (options.identifierPrefix !== undefined) {
+      identifierPrefix = options.identifierPrefix;
+    }
   }
 
   const root = createContainer(
@@ -221,6 +235,7 @@ export function hydrateRoot(
     hydrationCallbacks,
     isStrictMode,
     concurrentUpdatesByDefaultOverride,
+    identifierPrefix,
   );
   markContainerAsRoot(root.current, container);
   // This can't be a comment node since hydration doesn't work on comment nodes anyway.
@@ -236,7 +251,7 @@ export function hydrateRoot(
   // Render the initial children
   updateContainer(initialChildren, root, null, null);
 
-  return new ReactDOMRoot(root);
+  return new ReactDOMHydrationRoot(root);
 }
 
 export function isValidContainer(node: any): boolean {

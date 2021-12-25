@@ -16,7 +16,7 @@ export const enableFilterEmptyStringAttributesDOM = false;
 export const enableDebugTracing = false;
 
 // Adds user timing marks for e.g. state updates, suspense, and work loop stuff,
-// for an experimental scheduling profiler tool.
+// for an experimental timeline tool.
 export const enableSchedulingProfiler = __PROFILE__;
 
 // Helps identify side effects in render-phase lifecycle hooks and setState
@@ -103,7 +103,9 @@ export const warnOnSubscriptionInsideStartTransition = false;
 
 export const enableSuspenseAvoidThisFallback = false;
 
-export const enableCapturePhaseSelectiveHydrationWithoutDiscreteEventReplay = false;
+export const enableCapturePhaseSelectiveHydrationWithoutDiscreteEventReplay = true;
+
+export const enableClientRenderFallbackOnHydrationMismatch = true;
 
 export const enableComponentStackLocations = true;
 
@@ -137,6 +139,12 @@ export const deletedTreeCleanUpLevel = 3;
 // and recreate them when they are shown again (after the suspended boundary has resolved).
 // Note that this should be an uncommon use case and can be avoided by using the transition API.
 export const enableSuspenseLayoutEffectSemantics = true;
+
+// Changes the behavior for rendering custom elements in both server rendering
+// and client rendering, mostly to allow JSX attributes to apply to the custom
+// element's object properties instead of only HTML attributes.
+// https://github.com/facebook/react/issues/11347
+export const enableCustomElementPropertySupport = __EXPERIMENTAL__;
 
 // --------------------------
 // Future APIs to be deprecated
@@ -172,8 +180,6 @@ export const enableUseRefAccessWarning = false;
 
 export const warnAboutCallbackRefReturningFunction = false;
 
-export const enableRecursiveCommitTraversal = false;
-
 export const disableSchedulerTimeoutInWorkLoop = false;
 
 export const enableLazyContextPropagation = false;
@@ -185,3 +191,6 @@ export const allowConcurrentByDefault = false;
 export const enablePersistentOffscreenHostContainer = false;
 
 export const consoleManagedByDevToolsDuringStrictMode = true;
+
+// Only enabled in www builds
+export const enableUseMutableSource = false;

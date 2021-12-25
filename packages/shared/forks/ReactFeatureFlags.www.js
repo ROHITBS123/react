@@ -33,6 +33,7 @@ export const {
   enableSyncDefaultUpdates,
   warnOnSubscriptionInsideStartTransition,
   enableCapturePhaseSelectiveHydrationWithoutDiscreteEventReplay,
+  enableClientRenderFallbackOnHydrationMismatch,
 } = dynamicFeatureFlags;
 
 // On WWW, __EXPERIMENTAL__ is used for a new modern build.
@@ -49,7 +50,7 @@ export const enableProfilerNestedUpdateScheduledHook =
 export const enableUpdaterTracking = __PROFILE__;
 
 export const enableSuspenseLayoutEffectSemantics = true;
-export const enableSuspenseAvoidThisFallback = false;
+export const enableSuspenseAvoidThisFallback = true;
 
 // Logs additional User Timing API marks for use with an experimental profiling tool.
 export const enableSchedulingProfiler =
@@ -92,8 +93,6 @@ export const warnUnstableRenderSubtreeIntoContainer = false;
 // to the correct value.
 export const enableNewReconciler = __VARIANT__;
 
-export const enableRecursiveCommitTraversal = false;
-
 export const allowConcurrentByDefault = true;
 
 export const deletedTreeCleanUpLevel = 3;
@@ -101,6 +100,11 @@ export const deletedTreeCleanUpLevel = 3;
 export const enablePersistentOffscreenHostContainer = false;
 
 export const consoleManagedByDevToolsDuringStrictMode = true;
+
+// Some www surfaces are still using this. Remove once they have been migrated.
+export const enableUseMutableSource = true;
+
+export const enableCustomElementPropertySupport = __EXPERIMENTAL__;
 
 // Flow magic to verify the exports of this file match the original version.
 // eslint-disable-next-line no-unused-vars
